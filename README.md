@@ -31,6 +31,3 @@ check: https://aws.amazon.com/de/blogs/mobile/deploy-a-nextjs-13-application-to-
 
 [Blog Github Repo](https://github.com/focusOtter/cdk-fullstack-kitchen-sink/tree/with-hosting)
 [AWS Blog](https://aws.amazon.com/de/blogs/mobile/deploy-a-nextjs-13-application-to-amplify-with-the-aws-cdk/)
-
-AWS_PROFILE=hf-sm AWS_DEFAULT_REGION=us-east-1 GITHUB_ACCESS_TOKEN=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 cdk deploy
-AWS_PROFILE=hf-sm AWS_DEFAULT_REGION=us-east-1 aws amplify update-app --app-id d239cabd9ve986 --platform WEB_COMPUTE >> /dev/null
