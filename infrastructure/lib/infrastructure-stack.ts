@@ -1,11 +1,13 @@
 import { CfnOutput, SecretValue, Stack, StackProps } from 'aws-cdk-lib'
 import { Construct } from 'constructs'
 import * as codebuild from 'aws-cdk-lib/aws-codebuild'
+import * as cr from 'aws-cdk-lib/custom-resources'
 import {
   App,
   GitHubSourceCodeProvider,
   RedirectStatus,
 } from '@aws-cdk/aws-amplify-alpha'
+import { CfnBranch } from 'aws-cdk-lib/aws-amplify'
 
 interface HostingStackProps extends StackProps {
   readonly owner: string
@@ -33,7 +35,8 @@ export class AmplifyHostingStack extends Stack {
           status: RedirectStatus.NOT_FOUND_REWRITE,
         },
       ],
-      environmentVariables: {"AMPLIFY_MONOREPO_APP_ROOT": "app", "AMPLIFY_DIFF_DEPLOY": "false"},
+      // needed for monorepo structure
+      environmentVariables: { "AMPLIFY_MONOREPO_APP_ROOT": "app", "AMPLIFY_DIFF_DEPLOY": "false" },
       buildSpec: codebuild.BuildSpec.fromObjectToYaml({
         version: '1.0',
         // needed for monorepo structure
@@ -47,7 +50,7 @@ export class AmplifyHostingStack extends Stack {
                   commands: ['npm ci'],
                 },
                 build: {
-                  commands: ['npm run build' ,"pwd", "ls -all"],
+                  commands: ['npm run build', "pwd", "ls -all"],
                 },
               },
               artifacts: {
@@ -66,8 +69,51 @@ export class AmplifyHostingStack extends Stack {
     const main = amplifyApp.addBranch('main', {
       stage: 'PRODUCTION',
       autoBuild: true,
-      framework: 'Next.js - SSR',
     })
+    // add framework manually because it is not yet supported by the Amplify CDK
+    // https://github.com/aws/aws-cdk/issues/23325
+    const cfnBranch = main.node.defaultChild as CfnBranch
+    cfnBranch.addOverride('Properties.Framework', 'Next.js - SSR');
+    // cfnBranch.addDeletionOverride('Properties.BranchName');
+
+    // update platform to WEB_COMPUTE because it is not yet supported by the Amplify CDK
+    // https://aws.amazon.com/de/blogs/mobile/deploy-a-nextjs-13-application-to-amplify-with-the-aws-cdk/
+    const updatePlatform = new cr.AwsCustomResource(this, 'updatePlatform', {
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE
+      }),
+      onCreate: {
+        service: 'Amplify',
+        action: 'updateApp',
+        physicalResourceId: cr.PhysicalResourceId.of('app-update-platform'),
+        parameters: {
+          appId: amplifyApp.appId,
+          platform: 'WEB_COMPUTE',
+        }
+      },
+    });
+
+
+    // trigger build after stack creation
+    // https://stackoverflow.com/questions/71664346/trigger-an-aws-amplify-build-via-aws-cdk
+    const buildTrigger = new cr.AwsCustomResource(this, 'triggerAppBuild', {
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE
+      }),
+      onCreate: {
+        service: 'Amplify',
+        action: 'startJob',
+        physicalResourceId: cr.PhysicalResourceId.of('app-build-trigger'),
+        parameters: {
+          appId: amplifyApp.appId,
+          branchName: main.branchName,
+          jobType: 'RELEASE',
+          jobReason: 'Auto Start build',
+        }
+      },
+    });
+    buildTrigger.node.addDependency(updatePlatform);
+
 
     new CfnOutput(this, 'appId', {
       value: amplifyApp.appId,
